@@ -1,112 +1,128 @@
 use bytes::{Buf, Bytes, BytesMut};
 
-#[derive(Debug)]
-pub enum Command {
-    Set(Bytes, Bytes),
-    Get(Bytes),
+const MAGIC: u16 = 0x5244; // "RD"
+const VERSION: u8 = 1;
+const HEADER_LEN: usize = 12;
+const LEN_PREFIX: usize = 4;
+pub const MAX_FRAME: usize = 1024 * 1024; // 1MB, tune as needed
+
+
+#[derive(Debug, Clone, Copy)]
+pub enum OpCode {
+    Get = 1,
+    Set = 2,
 }
 
-pub fn try_parse(frame: &mut BytesMut) -> Option<Command> {
-    if frame.len() < 1 {
-        return None; // wait for more data
-    }
+#[derive(Debug, Clone, Copy)]
+pub enum Status {
+    Ok = 0,
+    NotFound = 1,
+    Err = 2,
+}
 
-    let cmd = frame[0];
+#[derive(Debug)]
+pub struct RequestFrameHeader {
+    pub magic: u16,
+    pub version: u8,
+    pub opcode: OpCode,
+    pub req_id: u32,
+    pub payload_len: u32,
+}
+#[derive(Debug)]
+pub struct ResponseFrameHeader {
+    pub magic: u16,
+    pub version: u8,
+    pub status: Status,
+    pub req_id: u32,
+    pub payload_len: u32,
+}
 
-    match cmd {
-        1 => parse_set(frame),
-        2 => parse_get(frame),
-        _ => {
-            frame.clear(); // protocol violation
-            None
-        }
-    }
+#[derive(Debug)]
+pub enum Command {
+    Get { req_id: u32, key: bytes::Bytes },
+    Set { req_id: u32, key: bytes::Bytes, value: bytes::Bytes },
+}
+
+#[derive(Debug)]
+pub enum Response {
+    Ok { req_id: u32, value: Option<bytes::Bytes> },
+    NotFound { req_id: u32 },
+    Err { req_id: u32, message: bytes::Bytes },
 }
 
 /*
-PROTOCOL
-SET:
-[cmd: u8=1][key_len: u16][val_len: u32][key][value]
+REQUEST HEADER
+Header 12 Bytes:
+magic   : u16  (0x5244 = "RD")
+version : u8   (1)
+opcode  : u8   (GET=1, SET=2)
+req_id  : u32  (request id)
+payload_len : u32 (length of payload in bytes)
+Request payloads:
+RESPONSE HEADER
+Header 12 Bytes:
+magic   : u16  (0x5244 = "RD")
+version : u8   (1)
+status  : u8   (OK=0, NOT_FOUND=1, ERR=2)
+req_id  : u32  (request id)
+payload_len : u32 (length of payload in bytes)
 
-GET:
-[cmd: u8=2][key_len: u16][key]
+
+GET: [key]
+SET: [key_len:u16][key][val_len:u32][val]
+Response payloads:
+
+OK + GET: [val_len:u32][val]
+OK + SET: empty
+NOT_FOUND: empty
+ERR: [msg_len:u16][msg]
 */
-fn parse_set(frame: &mut BytesMut) -> Option<Command> {
-    if frame.len() < 1 + 2 + 4 {
+
+
+pub fn try_parse(frame: &mut BytesMut) -> Option<Command> {
+    if frame.len() < 2 {
+        return None; // wait for more data
+    }
+
+    let magic = frame.get_u16();
+    if magic != MAGIC {
+        eprintln!("Invalid magic: {magic}");
         return None;
     }
 
-    let key_len = u16::from_be_bytes([frame[1], frame[2]]) as usize;
-    let val_len = u32::from_be_bytes([frame[3], frame[4], frame[5], frame[6]]) as usize;
 
-    let total = 1 + 2 + 4 + key_len + val_len;
-
-    if frame.len() < total {
-        return None;
-    }
-
-    frame.advance(7); // cmd + lengths
-
-    let key = frame.split_to(key_len).freeze();
-    let val = frame.split_to(val_len).freeze();
-
-    Some(Command::Set(key, val))
+    None
 }
-
-fn parse_get(frame: &mut BytesMut) -> Option<Command> {
-    if frame.len() < 1 + 2 {
+pub fn parse_req_header(frame: &mut BytesMut) -> Option<RequestFrameHeader> {
+    if frame.len() < HEADER_LEN {
         return None;
     }
-
-    let key_len = u16::from_be_bytes([frame[1], frame[2]]) as usize;
-
-    let total = 1 + 2 + key_len;
-
-    if frame.len() < total {
+    let magic = frame.get_u16();
+    if magic != MAGIC {
+        eprintln!("Invalid magic: {magic}");
         return None;
     }
-
-    frame.advance(3);
-
-    let key = frame.split_to(key_len).freeze();
-
-    Some(Command::Get(key))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{try_parse, Command};
-
-    #[test]
-    fn test_parse_set() {
-        let buff = &mut bytes::BytesMut::from(&[
-            1u8,                   // cmd = SET
-            0, 3,                 // key_len = 3
-            0, 0, 0, 5,          // val_len = 5
-            b'k', b'e', b'y',     // key = "key"
-            b'v', b'a', b'l', b'u', b'e' // value = "value"
-        ][..]);
-        let command = try_parse(buff).unwrap();
-        match command {
-            Command::Set(key, value) => {
-                assert_eq!(&key[..], b"key");
-                assert_eq!(&value[..], b"value");
-            }
-            _ => panic!("Expected SET command"),
+    let version = frame.get_u8();
+    if version != VERSION {
+        eprintln!("Unsupported version: {version}");
+        return None;
+    }
+    let opcode = match frame.get_u8() {
+        1 => OpCode::Get,
+        2 => OpCode::Set,
+        other => {
+            eprintln!("Invalid opcode: {other}");
+            return None;
         }
-    }
-
-    #[test]
-    fn test_parse_get() {
-        let buff = &mut bytes::BytesMut::from(&[
-            2u8,
-            0, 3,
-            b'k', b'e', b'y'
-        ][..]);
-        let command = try_parse(buff).unwrap();
-        match command {
-            Command::Get(key) => assert_eq!(&key[..], b"key"),
-            _ => panic!("Expected GET"),
-        }
-    }
+    };
+    let req_id = frame.get_u32();
+    let payload_len = frame.get_u32();
+    Some(RequestFrameHeader {
+        magic,
+        version,
+        opcode,
+        req_id,
+        payload_len,
+    })
 }
+

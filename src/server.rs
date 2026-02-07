@@ -4,11 +4,11 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::db::DbCommand;
-use crate::protocol::{try_parse, Command};
+use crate::protocol::{try_parse, Command, MAX_FRAME};
 use crate::Result;
 
 pub async fn process(mut socket: TcpStream, db_channel: mpsc::UnboundedSender<DbCommand>) -> Result<()> {
-    let mut buf = BytesMut::with_capacity(4096);
+    let mut buf = BytesMut::with_capacity(MAX_FRAME);
     println!("New connection established");
 
     loop {
