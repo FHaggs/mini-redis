@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::db::DbCommand;
-use crate::protocol::{try_parse, Command, MAX_FRAME};
+use crate::protocol::{Frame, Command, MAX_FRAME};
 use crate::Result;
 
 pub async fn process(mut socket: TcpStream, db_channel: mpsc::UnboundedSender<DbCommand>) -> Result<()> {
@@ -20,30 +20,27 @@ pub async fn process(mut socket: TcpStream, db_channel: mpsc::UnboundedSender<Db
                 break;
             }
         }
+        let mut frame = Frame::new();
 
-        while let Some(command) = try_parse(&mut buf) {
+        while let Some(command) = frame.try_parse(&mut buf) {
             match command {
-                Command::Get(key) => {
+                Command::Get { req_id, key } => {
                     let (tx, rx) = oneshot::channel();
-                    let cmd = DbCommand::Get { key, tx };
+                    let cmd = DbCommand::Get { key, tx, req_id };
                     if db_channel.send(cmd).is_err() {
                         return Err("db manager dropped".into());
                     }
                     match rx.await {
                         Ok(res) => {
-                            if let Some(value) = res {
-                                if let Err(err) = socket.write_all(&value).await {
-                                    return Err(err.into());
-                                }
-                            } else if let Err(err) = socket.write_all(b"NOT_FOUND").await {
+                            if let Err(err) = socket.write_all(&res).await {
                                 return Err(err.into());
                             }
                         }
                         Err(_) => return Err("db response dropped".into()),
                     }
                 }
-                Command::Set(key, value) => {
-                    let cmd = DbCommand::Set { key, value };
+                Command::Set { req_id, key, value } => {
+                    let cmd = DbCommand::Set { key, value, req_id };
                     if db_channel.send(cmd).is_err() {
                         return Err("db manager dropped".into());
                     }
