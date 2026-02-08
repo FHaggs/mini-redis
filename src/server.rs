@@ -3,12 +3,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::db::DbCommand;
-use crate::protocol::{try_parse, Command};
 use crate::Result;
+use crate::db::DbCommand;
+use crate::protocol::{Command, Frame, MAX_FRAME};
 
-pub async fn process(mut socket: TcpStream, db_channel: mpsc::UnboundedSender<DbCommand>) -> Result<()> {
-    let mut buf = BytesMut::with_capacity(4096);
+pub async fn process(
+    mut socket: TcpStream,
+    db_channel: mpsc::UnboundedSender<DbCommand>,
+) -> Result<()> {
+    let mut buf = BytesMut::with_capacity(MAX_FRAME);
     println!("New connection established");
 
     loop {
@@ -20,34 +23,36 @@ pub async fn process(mut socket: TcpStream, db_channel: mpsc::UnboundedSender<Db
                 break;
             }
         }
+        let mut frame = Frame::new();
 
-        while let Some(command) = try_parse(&mut buf) {
+        while let Some(command) = frame.try_parse(&mut buf) {
+            let (tx, rx) = oneshot::channel();
             match command {
-                Command::Get(key) => {
-                    let (tx, rx) = oneshot::channel();
-                    let cmd = DbCommand::Get { key, tx };
-                    if db_channel.send(cmd).is_err() {
-                        return Err("db manager dropped".into());
-                    }
-                    match rx.await {
-                        Ok(res) => {
-                            if let Some(value) = res {
-                                if let Err(err) = socket.write_all(&value).await {
-                                    return Err(err.into());
-                                }
-                            } else if let Err(err) = socket.write_all(b"NOT_FOUND").await {
-                                return Err(err.into());
-                            }
-                        }
-                        Err(_) => return Err("db response dropped".into()),
-                    }
-                }
-                Command::Set(key, value) => {
-                    let cmd = DbCommand::Set { key, value };
+                Command::Get { req_id, key } => {
+                    let cmd = DbCommand::Get { key, tx, req_id };
                     if db_channel.send(cmd).is_err() {
                         return Err("db manager dropped".into());
                     }
                 }
+                Command::Set { req_id, key, value } => {
+                    let cmd = DbCommand::Set {
+                        key,
+                        value,
+                        req_id,
+                        tx,
+                    };
+                    if db_channel.send(cmd).is_err() {
+                        return Err("db manager dropped".into());
+                    }
+                }
+            }
+            match rx.await {
+                Ok(res) => {
+                    if let Err(err) = socket.write_all(&res).await {
+                        return Err(err.into());
+                    }
+                }
+                Err(_) => return Err("db response dropped".into()),
             }
         }
     }
