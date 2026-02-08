@@ -209,6 +209,53 @@ pub fn create_response(status: Status, req_id: u32, value: Option<Bytes>) -> Byt
     buf.freeze()
 }
 
+pub fn encode_response(response: Response) -> Bytes {
+    match response {
+        Response::Ok { req_id, value } => {
+            let payload_len = match &value {
+                Some(v) => 4 + v.len() as u32,
+                None => 0,
+            };
+            let header = create_response_header(Status::Ok, req_id, payload_len);
+            let mut buf = BytesMut::with_capacity(HEADER_LEN + payload_len as usize);
+            buf.put_u16_le(header.magic);
+            buf.put_u8(header.version);
+            buf.put_u8(header.status as u8);
+            buf.put_u32_le(header.req_id);
+            buf.put_u32_le(header.payload_len);
+            if let Some(v) = value {
+                buf.put_u32_le(v.len() as u32);
+                buf.extend_from_slice(&v);
+            }
+            buf.freeze()
+        }
+        Response::NotFound { req_id } => {
+            let header = create_response_header(Status::NotFound, req_id, 0);
+            let mut buf = BytesMut::with_capacity(HEADER_LEN);
+            buf.put_u16_le(header.magic);
+            buf.put_u8(header.version);
+            buf.put_u8(header.status as u8);
+            buf.put_u32_le(header.req_id);
+            buf.put_u32_le(header.payload_len);
+            buf.freeze()
+        }
+        Response::Err { req_id, message } => {
+            let msg_len = message.len() as u16;
+            let payload_len = 2 + msg_len as u32;
+            let header = create_response_header(Status::Err, req_id, payload_len);
+            let mut buf = BytesMut::with_capacity(HEADER_LEN + payload_len as usize);
+            buf.put_u16_le(header.magic);
+            buf.put_u8(header.version);
+            buf.put_u8(header.status as u8);
+            buf.put_u32_le(header.req_id);
+            buf.put_u32_le(header.payload_len);
+            buf.put_u16_le(msg_len);
+            buf.extend_from_slice(&message);
+            buf.freeze()
+        }
+    }
+}
+
 
 
 #[cfg(test)]

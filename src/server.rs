@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::Result;
 use crate::db::DbCommand;
-use crate::protocol::{Command, Frame, MAX_FRAME};
+use crate::protocol::{encode_response, Command, Frame, MAX_FRAME};
 
 pub async fn process(
     mut socket: TcpStream,
@@ -48,7 +48,8 @@ pub async fn process(
             }
             match rx.await {
                 Ok(res) => {
-                    if let Err(err) = socket.write_all(&res).await {
+                    let bytes = encode_response(res);
+                    if let Err(err) = socket.write_all(&bytes).await {
                         return Err(err.into());
                     }
                 }
