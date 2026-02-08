@@ -63,6 +63,11 @@ while True:
         pkt = build_request(OP_SET, req_id, payload)
         sock.sendall(pkt)
         print(f"SET sent (req_id={req_id})")
+        response = parse_response(sock)
+        if response is None:
+            print("Response empty")
+        else:
+            print(f"Value: {response.decode(errors='replace')}")
 
     elif cmd[0] == "get":
         k = cmd[1].encode()
