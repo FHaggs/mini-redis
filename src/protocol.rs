@@ -190,24 +190,6 @@ fn create_response_header(status: Status, req_id: u32, payload_len: u32) -> Resp
         payload_len,
     }
 }
-pub fn create_response(status: Status, req_id: u32, value: Option<Bytes>) -> Bytes {
-    let payload_len = match &value {
-        Some(v) => 4 + v.len() as u32,
-        None => 0,
-    };
-    let header = create_response_header(status, req_id, payload_len);
-    let mut buf = BytesMut::with_capacity(HEADER_LEN + payload_len as usize);
-    buf.put_u16_le(header.magic);
-    buf.put_u8(header.version);
-    buf.put_u8(header.status as u8);
-    buf.put_u32_le(header.req_id);
-    buf.put_u32_le(header.payload_len);
-    if let Some(v) = value {
-        buf.put_u32_le(v.len() as u32);
-        buf.extend_from_slice(&v);
-    }
-    buf.freeze()
-}
 
 pub fn encode_response(response: Response) -> Bytes {
     match response {
