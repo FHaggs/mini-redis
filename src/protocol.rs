@@ -21,8 +21,6 @@ pub enum Status {
 
 #[derive(Debug, Clone, Copy)]
 pub struct RequestFrameHeader {
-    pub magic: u16,
-    pub version: u8,
     pub opcode: OpCode,
     pub req_id: u32,
     pub payload_len: u32,
@@ -173,8 +171,6 @@ pub fn parse_req_header(frame: &mut BytesMut) -> Option<RequestFrameHeader> {
     let req_id = frame.get_u32();
     let payload_len = frame.get_u32();
     Some(RequestFrameHeader {
-        magic,
-        version,
         opcode,
         req_id,
         payload_len,
