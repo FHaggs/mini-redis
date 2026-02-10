@@ -19,7 +19,7 @@ pub async fn db_manager(mut db_rx: mpsc::UnboundedReceiver<DbCommand>, mut db: D
     while let Some(command) = db_rx.recv().await {
         match command {
             DbCommand::Get { key, tx, req_id } => {
-                print!("DB GET: {:?} => ", key);
+                //print!("DB GET: {:?} => ", key);
                 let res = db.get(&key).map(|v| v.clone());
                 let _ = match res {
                     Some(value) => tx.send(Response::Ok { req_id, value: Some(value) }),
@@ -27,7 +27,7 @@ pub async fn db_manager(mut db_rx: mpsc::UnboundedReceiver<DbCommand>, mut db: D
                 };
             }
             DbCommand::Set { key, value, req_id, tx } => {
-                print!("DB SET: {:?} => {:?}\n", key, value);
+                //print!("DB SET: {:?} => {:?}\n", key, value);
                 db.insert(key, value);
                 let _ = tx.send(Response::Ok { req_id, value: None });
             }
