@@ -10,6 +10,7 @@ pub const MAX_FRAME: usize = 1024 * 1024; // 1MB, tune as needed
 pub enum OpCode {
     Get = 1,
     Set = 2,
+    Del = 3,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,6 +39,7 @@ pub struct ResponseFrameHeader {
 pub enum Command {
     Get { req_id: u32, key: bytes::Bytes },
     Set { req_id: u32, key: bytes::Bytes, value: bytes::Bytes },
+    Delete { req_id: u32, key: bytes::Bytes },
 }
 
 #[derive(Debug)]
@@ -106,6 +108,7 @@ impl Frame {
                     let cmd = match header.opcode {
                         OpCode::Get => parse_get_command(buf, &header),
                         OpCode::Set => parse_set_command(buf, &header),
+                        OpCode::Del => parse_del_command(buf, &header)
                     };
                     self.state = ParseState::Header;
                     return cmd;
@@ -114,6 +117,19 @@ impl Frame {
         }
     }
 }
+
+fn parse_del_command(buf: &mut BytesMut, header: &RequestFrameHeader) -> Option<Command> {
+    let key_len = buf.get_u16() as usize;
+    if buf.len() < key_len {
+        return None;
+    }
+    let key = buf.split_to(key_len).freeze();
+    Some(Command::Delete {
+        req_id: header.req_id,
+        key,
+    })
+}
+
 fn parse_get_command(buf: &mut BytesMut, header: &RequestFrameHeader) -> Option<Command> {
     let key_len = buf.get_u16() as usize;
     if buf.len() < key_len {
@@ -163,6 +179,7 @@ pub fn parse_req_header(frame: &mut BytesMut) -> Option<RequestFrameHeader> {
     let opcode = match frame.get_u8() {
         1 => OpCode::Get,
         2 => OpCode::Set,
+        3 => OpCode::Del,
         other => {
             eprintln!("Invalid opcode: {other}");
             return None;

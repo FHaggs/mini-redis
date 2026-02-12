@@ -6,6 +6,7 @@ VERSION = 1
 
 OP_GET = 1
 OP_SET = 2
+OP_DEL = 3
 
 STATUS_OK = 0
 STATUS_NOT_FOUND = 1
@@ -80,6 +81,19 @@ while True:
             print("Key not found or empty")
         else:
             print(f"Value: {response.decode(errors='replace')}")
+    elif cmd[0] == "del":
+        k = cmd[1].encode()
+        payload = struct.pack(">H", len(k)) + k
+        pkt = build_request(OP_DEL, req_id, payload)
+        sock.sendall(pkt)
+
+        response = parse_response(sock)
+        if response is None:
+            print("Key not found or empty")
+        else:
+            print(f"Value: {response.decode(errors='replace')}")
+
+    
 
     req_id += 1
     sock.close()

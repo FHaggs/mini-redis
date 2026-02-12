@@ -62,6 +62,12 @@ async fn reader_task(
                     req_id,
                     resp_tx: resp_tx.clone(),
                 },
+                Command::Delete { req_id, key } => DbCommand::Delete {
+                    key,
+                    req_id,
+                    resp_tx: resp_tx.clone(),
+                }
+                
             };
             if db_channel.send(cmd).is_err() {
                 return Err("db manager dropped".into());

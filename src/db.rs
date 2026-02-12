@@ -10,6 +10,8 @@ use crate::protocol::Response;
 pub enum DbCommand {
     Set { key: Bytes, value: Bytes, req_id: u32, resp_tx: mpsc::UnboundedSender<Response> },
     Get { key: Bytes, req_id: u32, resp_tx: mpsc::UnboundedSender<Response> },
+    Delete { key: Bytes, req_id: u32, resp_tx: mpsc::UnboundedSender<Response> },
+
 }
 
 pub async fn db_manager(mut db_rx: mpsc::UnboundedReceiver<DbCommand>, mut db: Db) {
@@ -26,6 +28,13 @@ pub async fn db_manager(mut db_rx: mpsc::UnboundedReceiver<DbCommand>, mut db: D
             DbCommand::Set { key, value, req_id, resp_tx } => {
                 db.insert(key, value);
                 let _ = resp_tx.send(Response::Ok { req_id, value: None });
+            }
+            DbCommand::Delete { key, req_id, resp_tx } => {
+                let value = db.remove(&key);
+                let _ = match value {
+                    Some(value) => resp_tx.send(Response::Ok { req_id, value: Some(value) }),
+                    None => resp_tx.send(Response::NotFound { req_id }),
+                };
             }
         }
     }
