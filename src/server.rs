@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::Result;
 use crate::db::DbCommand;
 use crate::protocol::Response;
@@ -8,9 +10,11 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::mpsc;
 
+use crate::shard_router::send_to_shard;
+
 pub async fn process(
     socket: TcpStream,
-    db_channel: mpsc::UnboundedSender<DbCommand>,
+    shards: Arc<Vec<mpsc::UnboundedSender<DbCommand>>>,
 ) -> Result<()> {
     let (read_half, write_half) = socket.into_split();
 
@@ -21,7 +25,7 @@ pub async fn process(
     let writer_handle = tokio::spawn(writer_task(write_half, resp_rx));
 
     // Run reader in current task
-    let reader_result = reader_task(read_half, db_channel, resp_tx).await;
+    let reader_result = reader_task(read_half, &shards, resp_tx).await;
 
     // Wait for writer to finish
     let writer_result = writer_handle.await;
@@ -34,7 +38,7 @@ pub async fn process(
 
 async fn reader_task(
     mut socket: OwnedReadHalf,
-    db_channel: mpsc::UnboundedSender<DbCommand>,
+    shards: &[mpsc::UnboundedSender<DbCommand>],
     resp_tx: mpsc::UnboundedSender<Response>,
 ) -> Result<()> {
     let mut frame = Frame::new();
@@ -69,7 +73,7 @@ async fn reader_task(
                 }
                 
             };
-            if db_channel.send(cmd).is_err() {
+            if send_to_shard(cmd, shards).is_err() {
                 return Err("db manager dropped".into());
             }
         }
