@@ -14,12 +14,12 @@ use crate::shard_router::send_to_shard;
 
 pub async fn process(
     socket: TcpStream,
-    shards: Arc<Vec<mpsc::UnboundedSender<DbCommand>>>,
+    shards: Arc<Vec<mpsc::Sender<DbCommand>>>,
 ) -> Result<()> {
     let (read_half, write_half) = socket.into_split();
 
     // Single response channel for this connection - no per-request allocations
-    let (resp_tx, resp_rx) = mpsc::unbounded_channel::<Response>();
+    let (resp_tx, resp_rx) = mpsc::channel::<Response>(512);
 
     // Spawn writer task
     let writer_handle = tokio::spawn(writer_task(write_half, resp_rx));
@@ -38,8 +38,8 @@ pub async fn process(
 
 async fn reader_task(
     mut socket: OwnedReadHalf,
-    shards: &[mpsc::UnboundedSender<DbCommand>],
-    resp_tx: mpsc::UnboundedSender<Response>,
+    shards: &[mpsc::Sender<DbCommand>],
+    resp_tx: mpsc::Sender<Response>,
 ) -> Result<()> {
     let mut frame = Frame::new();
     let mut buf = BytesMut::with_capacity(MAX_FRAME);
@@ -73,7 +73,7 @@ async fn reader_task(
                 }
                 
             };
-            if send_to_shard(cmd, shards).is_err() {
+            if send_to_shard(cmd, shards).await.is_err() {
                 return Err("db manager dropped".into());
             }
         }
@@ -83,7 +83,7 @@ async fn reader_task(
 
 async fn writer_task(
     mut write_half: tokio::net::tcp::OwnedWriteHalf,
-    mut resp_rx: mpsc::UnboundedReceiver<Response>,
+    mut resp_rx: mpsc::Receiver<Response>,
 ) -> Result<()> {
     let mut response_buf = BytesMut::with_capacity(4096);
 

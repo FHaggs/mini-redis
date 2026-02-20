@@ -1,10 +1,10 @@
 use crate::db::DbCommand;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::Sender;
 use std::hash::{Hash, Hasher};
 use ahash::AHasher;
 use bytes::Bytes;
 
-pub fn send_to_shard(command: DbCommand, db_tx_channels: &[UnboundedSender<DbCommand>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn send_to_shard(command: DbCommand, db_tx_channels: &[Sender<DbCommand>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let num_shards = db_tx_channels.len();
 
@@ -16,7 +16,8 @@ pub fn send_to_shard(command: DbCommand, db_tx_channels: &[UnboundedSender<DbCom
 
     let shard = shard_for_key(key, num_shards);
     // println!("Using shard {shard}");
-    Ok(db_tx_channels[shard].send(command)?)
+    db_tx_channels[shard].send(command).await?;
+    Ok(())
 
 
 }

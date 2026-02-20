@@ -21,13 +21,13 @@ STATUS_ERR = 2
 
 # Tunables
 PROCESSES = max(1, os.cpu_count() or 1)
-CLIENTS_PER_PROCESS = 200
-OPS_PER_CLIENT = 500
+CLIENTS_PER_PROCESS = 50
+OPS_PER_CLIENT = 200
 GET_RATIO = 0.6  # 70% gets, 30% sets
 KEYSPACE = 10_000
 VALUE_SIZE = 64
 TIMEOUT = 30.0
-PIPELINE_SIZE = 100  # Send N requests before reading responses
+PIPELINE_SIZE = 10  # Send N requests before reading responses
 
 
 @dataclass
