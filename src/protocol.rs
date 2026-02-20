@@ -26,14 +26,14 @@ pub struct RequestFrameHeader {
     pub req_id: u32,
     pub payload_len: u32,
 }
-#[derive(Debug, Clone, Copy)]
-pub struct ResponseFrameHeader {
-    pub magic: u16,
-    pub version: u8,
-    pub status: Status,
-    pub req_id: u32,
-    pub payload_len: u32,
-}
+// #[derive(Debug, Clone, Copy)]
+// pub struct ResponseFrameHeader {
+//     pub magic: u16,
+//     pub version: u8,
+//     pub status: Status,
+//     pub req_id: u32,
+//     pub payload_len: u32,
+// }
 
 #[derive(Debug)]
 pub enum Command {
@@ -194,15 +194,6 @@ pub fn parse_req_header(frame: &mut BytesMut) -> Option<RequestFrameHeader> {
     })
 }
 
-fn create_response_header(status: Status, req_id: u32, payload_len: u32) -> ResponseFrameHeader {
-    ResponseFrameHeader {
-        magic: MAGIC,
-        version: VERSION,
-        status,
-        req_id,
-        payload_len,
-    }
-}
 
 pub fn encode_response(response: Response) -> Bytes {
     match response {
@@ -211,13 +202,14 @@ pub fn encode_response(response: Response) -> Bytes {
                 Some(v) => 4 + v.len() as u32,
                 None => 0,
             };
-            let header = create_response_header(Status::Ok, req_id, payload_len);
             let mut buf = BytesMut::with_capacity(HEADER_LEN + payload_len as usize);
-            buf.put_u16_le(header.magic);
-            buf.put_u8(header.version);
-            buf.put_u8(header.status as u8);
-            buf.put_u32_le(header.req_id);
-            buf.put_u32_le(header.payload_len);
+            
+            buf.put_u16_le(MAGIC);
+            buf.put_u8(VERSION);
+            buf.put_u8(Status::Ok as u8);
+            buf.put_u32_le(req_id);
+            buf.put_u32_le(payload_len);
+            
             if let Some(v) = value {
                 buf.put_u32_le(v.len() as u32);
                 buf.extend_from_slice(&v);
@@ -225,25 +217,23 @@ pub fn encode_response(response: Response) -> Bytes {
             buf.freeze()
         }
         Response::NotFound { req_id } => {
-            let header = create_response_header(Status::NotFound, req_id, 0);
             let mut buf = BytesMut::with_capacity(HEADER_LEN);
-            buf.put_u16_le(header.magic);
-            buf.put_u8(header.version);
-            buf.put_u8(header.status as u8);
-            buf.put_u32_le(header.req_id);
-            buf.put_u32_le(header.payload_len);
+            buf.put_u16_le(MAGIC);
+            buf.put_u8(VERSION);
+            buf.put_u8(Status::NotFound as u8);
+            buf.put_u32_le(req_id);
+            buf.put_u32_le(0);
             buf.freeze()
         }
         Response::Err { req_id, message } => {
             let msg_len = message.len() as u16;
             let payload_len = 2 + msg_len as u32;
-            let header = create_response_header(Status::Err, req_id, payload_len);
             let mut buf = BytesMut::with_capacity(HEADER_LEN + payload_len as usize);
-            buf.put_u16_le(header.magic);
-            buf.put_u8(header.version);
-            buf.put_u8(header.status as u8);
-            buf.put_u32_le(header.req_id);
-            buf.put_u32_le(header.payload_len);
+            buf.put_u16_le(MAGIC);
+            buf.put_u8(VERSION);
+            buf.put_u8(Status::Err as u8);
+            buf.put_u32_le(req_id);
+            buf.put_u32_le(payload_len);
             buf.put_u16_le(msg_len);
             buf.extend_from_slice(&message);
             buf.freeze()

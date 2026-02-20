@@ -7,6 +7,13 @@ edition = "2024"
 ahash = "0.8.12"
 bytes = "1.11.1"
 tokio = { version = "1.49.0", features = ["full"] }
+dashmap = "6.1.0"
+
+[profile.release]
+lto = "fat"           # Full link-time optimization
+codegen-units = 1     # Better optimization, slower compile
+opt-level = 3         # Maximum optimization
+strip = true          # Remove debug symbols
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

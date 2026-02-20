@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use crate::Result;
-use crate::db::DbCommand;
+use crate::db::{DbCommand, Db, handle_command};
 use crate::protocol::Response;
 use crate::protocol::{Command, Frame, MAX_FRAME, encode_response};
 use bytes::BytesMut;
@@ -10,22 +8,23 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::mpsc;
 
-use crate::shard_router::send_to_shard;
-
 pub async fn process(
     socket: TcpStream,
-    shards: Arc<Vec<mpsc::Sender<DbCommand>>>,
+    db: Db,
 ) -> Result<()> {
+    // Enable TCP_NODELAY for lower latency
+    socket.set_nodelay(true)?;
+
     let (read_half, write_half) = socket.into_split();
 
-    // Single response channel for this connection - no per-request allocations
+    // Single response channel for this connection
     let (resp_tx, resp_rx) = mpsc::channel::<Response>(512);
 
     // Spawn writer task
     let writer_handle = tokio::spawn(writer_task(write_half, resp_rx));
 
     // Run reader in current task
-    let reader_result = reader_task(read_half, &shards, resp_tx).await;
+    let reader_result = reader_task(read_half, db, resp_tx).await;
 
     // Wait for writer to finish
     let writer_result = writer_handle.await;
@@ -38,7 +37,7 @@ pub async fn process(
 
 async fn reader_task(
     mut socket: OwnedReadHalf,
-    shards: &[mpsc::Sender<DbCommand>],
+    db: Db,
     resp_tx: mpsc::Sender<Response>,
 ) -> Result<()> {
     let mut frame = Frame::new();
@@ -53,7 +52,7 @@ async fn reader_task(
             }
         }
         while let Some(command) = frame.try_parse(&mut buf) {
-            // Clone is cheap - just Arc increment
+            // Execute command directly - no channel overhead!
             let cmd = match command {
                 Command::Get { req_id, key } => DbCommand::Get {
                     key,
@@ -71,11 +70,8 @@ async fn reader_task(
                     req_id,
                     resp_tx: resp_tx.clone(),
                 }
-                
             };
-            if send_to_shard(cmd, shards).await.is_err() {
-                return Err("db manager dropped".into());
-            }
+            handle_command(&db, cmd);
         }
     }
     Ok(())
